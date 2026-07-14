@@ -2,22 +2,16 @@
 __pycache__/
 *.pyc
 .DS_Store
-
-# secrets -- never commit real API keys
 .env
-
-# raw datasets: too large to commit (GBs) -- kept on disk for local model
-# training only, not part of the submitted code/report deliverable
+.ipynb_checkpoints/
+data/
+embeddings/
+tmdb_5000_movies.csv
+*.pkl
+*.npy
 tmdb_movie_dataset_v11/
 tmdb_5000_movies/
 ml-25m/
 movie_dataset_public_final/
-
-# frontend deps -- reinstall via bun/npm install, never commit
 frontend/node_modules/
 frontend/.tanstack/
-
-# trained model artifacts / derived data -- too large for git, regenerate locally
-models/**/*.pt
-models/**/*.csv
-models/**/*.json

@@ -21,9 +21,11 @@ SYSTEM_INSTRUCTION = load_prompt("group_chat_system.md")
 # system instruction above.
 PROMPT_TEMPLATE = (
     "The group is currently looking at these recommended movies: "
-    "{current_movies}.\n\nMovie information:\n{context}\n\nUser message: {message}\nAnswer:"
+    "{current_movies}.\n\n"
+    "Conversation History:\n{history}\n\n"
+    "Movie information:\n{context}\n\n"
+    "User message: {message}\nAnswer:"
 )
-
 _NEGATION_WORDS = r"not|no|without|remove|exclude|skip|less"
 
 # How many candidates to pull from the vector index before genre filtering.
@@ -47,10 +49,14 @@ def _detect_excluded_genres(message: str) -> set[str]:
     return excluded
 
 
-def answer_group_chat(user_message: str, current_movie_ids: list[str], top_k: int = 5) -> dict:
-    if not catalog_service.ready:
-        raise RuntimeError("catalog not loaded")
-
+def answer_group_chat(
+    user_message: str, 
+    current_movie_ids: list[str], 
+    chat_history: list[dict] = None,  # NEW PARAMETER
+    top_k: int = 5
+) -> dict:
+    if chat_history is None:
+        chat_history = []
     current_movie_id_set = set(current_movie_ids)
     current_movies = [m for m in (catalog_service.get_movie(mid) for mid in current_movie_ids) if m]
     current_titles = [m["title"] for m in current_movies]
@@ -98,8 +104,16 @@ def answer_group_chat(user_message: str, current_movie_ids: list[str], top_k: in
         context_lines.append(f"- {movie['title']}: {overview}")
         retrieved_movies.append({"movie_id": movie_id, "title": movie["title"], "score": round(score, 4)})
 
+# Format the history into a readable transcript
+    history_lines = []
+    for turn in chat_history[-5:]:  # Keep the last 5 turns to prevent token bloat
+        history_lines.append(f"User: {turn['message']}")
+        history_lines.append(f"Assistant: {turn['answer']}")
+    history_text = "\n".join(history_lines) if history_lines else "No previous history."
+
     prompt = PROMPT_TEMPLATE.format(
         current_movies=", ".join(current_titles) if current_titles else "none yet",
+        history=history_text, # INJECT HISTORY HERE
         context="\n".join(context_lines),
         message=user_message,
     )

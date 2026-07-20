@@ -76,11 +76,14 @@ class MovieRAGService:
 
         self.ready = True
 
-    def retrieve(self, query: str, top_k: int = 3) -> list[RetrievedMovie]:
+    def retrieve(self, query: str, top_k: int = 3, boost_query: str | None = None) -> list[RetrievedMovie]:
         query_embedding = self.retriever.encode([query], normalize_embeddings=True)
         sims = cosine_similarity(query_embedding, self.doc_embeddings)[0]
 
-        query_normalized = _normalize(query)
+        # FIX: Only look for title keywords in the current question, fallback to full query if not provided
+        target_for_boost = boost_query if boost_query is not None else query
+        query_normalized = _normalize(target_for_boost)
+        
         for i, title_norm in enumerate(self._titles_normalized):
             if len(title_norm) < 4:
                 continue
@@ -131,24 +134,32 @@ class MovieRAGService:
         prompt = PROMPT_TEMPLATE.format(context="\n".join(lines), history=history_block, question=question)
         return generator_service.generate(prompt, system_instruction=SYSTEM_INSTRUCTION, max_new_tokens=max_new_tokens)
 
-    def answer(self, question: str, top_k: int = 3, history: list[Turn] | None = None) -> dict:
-        history = history or []
-        # Only fold in prior *user* turns, never assistant answers: a bare
-        # follow-up like "do we have a plot?" carries no signal on its own,
-        # so recent user questions help retrieval find the right movie
-        # again -- but including the assistant's own (long, prose) answers
-        # here tends to make the small generator just echo them back
-        # instead of answering the new question.
-        recent_user_questions = [t.text for t in history if t.role == "user"][-HISTORY_TURN_LIMIT:]
-        retrieval_query = " ".join([*recent_user_questions, question])
 
-        retrieved = self.retrieve(retrieval_query, top_k=top_k)
-        answer_text = self.generate_answer(question, retrieved, recent_user_questions)
-        return {
-            "question": question,
-            "answer": answer_text,
-            "sources": [{"title": m.title, "score": round(m.score, 4)} for m in retrieved],
-        }
+    def answer(self, question: str, top_k: int = 3, history: list[Turn] | None = None) -> dict:
+            history = history or []
+            recent_user_questions = [t.text for t in history if t.role == "user"][-HISTORY_TURN_LIMIT:]
+
+            if recent_user_questions and len(question.split()) >= 4:
+                retrieval_query = " ".join([*recent_user_questions, question])
+            else:
+                retrieval_query = question
+
+            retrieved = self.retrieve(retrieval_query, top_k=top_k, boost_query=question)
+
+            if not retrieved or retrieved[0].score < 0.35:
+                return {
+                    "question": question,
+                    "answer": "I don't have enough information to answer that from the movie data I have.",
+                    "sources": [],
+                }
+
+            answer_text = self.generate_answer(question, retrieved[:1], recent_user_questions)
+
+            return {
+                "question": question,
+                "answer": answer_text,
+                "sources": [{"title": m.title, "score": round(m.score, 4)} for m in retrieved],
+            }
 
 
 rag_service = MovieRAGService(CORPUS_PATH, CONFIG_PATH)

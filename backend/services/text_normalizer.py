@@ -67,3 +67,9 @@ def normalize_batch(texts):
     """Module-level (not a lambda) so joblib can pickle a reference to it.
     This is the pipeline's first step: raw text in, stemmed text out."""
     return [advanced_normalize_text(t, mode="stem") for t in texts]
+
+def normalize_plain(text):
+    """Single string, mode='none' -- the topic model's vocabulary is unstemmed.
+    Passed to TfidfVectorizer(preprocessor=...), which calls it per-document,
+    so this takes one string and returns one string (unlike normalize_batch)."""
+    return advanced_normalize_text(text, mode="none")    

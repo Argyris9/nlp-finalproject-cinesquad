@@ -181,7 +181,12 @@ def group_chat(session_id: str, request: GroupChatRequest) -> GroupChatResponse:
         raise HTTPException(503, "Movie catalog not available -- see models/recommender/README.md")
 
     try:
-        result = group_chat_service.answer_group_chat(request.message, request.current_movie_ids)
+        # Pass the chat history into the service so the LLM remembers previous turns
+        result = group_chat_service.answer_group_chat(
+            user_message=request.message,
+            current_movie_ids=request.current_movie_ids,
+            chat_history=session.chat_history
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(500, "Internal error while generating a chat response.") from exc
 
@@ -191,7 +196,6 @@ def group_chat(session_id: str, request: GroupChatRequest) -> GroupChatResponse:
         retrieved_movies=[RetrievedMovieRef(**m) for m in result["retrieved_movies"]],
         grounding_note=result["grounding_note"],
     )
-
 
 # ---- Movies -----------------------------------------------------------------
 

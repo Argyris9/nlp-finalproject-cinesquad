@@ -1,4 +1,4 @@
-# Backend deployment image (Hugging Face Spaces, Docker SDK).
+# Backend deployment image (Cloud Run, or any other Docker host).
 # Only backend/, models/, and requirements.txt are needed at runtime --
 # the frontend, notebooks, and raw datasets under ml-25m/ etc. are
 # training-time/dev-time only, see backend/ml/train_recommender.py.
@@ -26,6 +26,12 @@ ENV HOME=/home/user \
 WORKDIR $HOME/app
 
 COPY --chown=user requirements.txt .
+# Plain `pip install torch` on Linux pulls the full CUDA toolkit
+# (nvidia-cublas, nvidia-cudnn, cuda-toolkit, ...) even though this
+# container never touches a GPU -- that alone is several GB wasted.
+# Installing the CPU-only build first means the requirements.txt install
+# below finds torch already satisfied and skips the CUDA variant.
+RUN pip install --no-cache-dir --user torch --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 COPY --chown=user backend/ ./backend/

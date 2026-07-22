@@ -34,6 +34,12 @@ _NEGATION_WORDS = r"not|no|without|remove|exclude|skip|less"
 # overfetching gives the genre filter below enough to actually work with.
 _SEARCH_OVERFETCH_MULTIPLIER = 40
 
+# Same cutoff rag_service.py uses for its single-user chat: below this,
+# cosine similarity is weak enough that grounding the LLM in it does more
+# harm (confident answer about a barely-related movie) than admitting there's
+# no good match.
+MIN_RELEVANCE_SCORE = 0.35
+
 
 def _detect_excluded_genres(message: str) -> set[str]:
     """Catches explicit exclusions like "not horror" / "remove the horror
@@ -93,6 +99,13 @@ def answer_group_chat(
         retrieved.append((movie_id, score))
         if len(retrieved) >= top_k:
             break
+
+    if not retrieved or retrieved[0][1] < MIN_RELEVANCE_SCORE:
+        return {
+            "answer": "I couldn't find a good match for that in the current session's movies -- try loosening the request a bit.",
+            "retrieved_movies": [],
+            "grounding_note": "No sufficiently relevant movies were found for this request.",
+        }
 
     context_lines = []
     retrieved_movies = []

@@ -76,14 +76,12 @@ class MovieRAGService:
 
         self.ready = True
 
-    def retrieve(self, query: str, top_k: int = 3, boost_query: str | None = None) -> list[RetrievedMovie]:
+    def retrieve(self, query: str, top_k: int = 3) -> list[RetrievedMovie]:
         query_embedding = self.retriever.encode([query], normalize_embeddings=True)
         sims = cosine_similarity(query_embedding, self.doc_embeddings)[0]
 
-        # FIX: Only look for title keywords in the current question, fallback to full query if not provided
-        target_for_boost = boost_query if boost_query is not None else query
-        query_normalized = _normalize(target_for_boost)
-        
+        query_normalized = _normalize(query)
+
         for i, title_norm in enumerate(self._titles_normalized):
             if len(title_norm) < 4:
                 continue
@@ -136,30 +134,34 @@ class MovieRAGService:
 
 
     def answer(self, question: str, top_k: int = 3, history: list[Turn] | None = None) -> dict:
-            history = history or []
-            recent_user_questions = [t.text for t in history if t.role == "user"][-HISTORY_TURN_LIMIT:]
+        history = history or []
+        recent_user_questions = [t.text for t in history if t.role == "user"][-HISTORY_TURN_LIMIT:]
+        # Short follow-ups ("who directed it?") are the ones that most need
+        # prior turns folded in -- they're often pronoun-only and carry no
+        # retrievable signal on their own -- so history is included whenever
+        # it exists, not gated on the new question's length.
+        retrieval_query = " ".join([*recent_user_questions, question]) if recent_user_questions else question
 
-            if recent_user_questions and len(question.split()) >= 4:
-                retrieval_query = " ".join([*recent_user_questions, question])
-            else:
-                retrieval_query = question
+        # retrieve()'s title-match boost runs on this same history-folded
+        # text: a bare follow-up like "who directed it?" never names a title
+        # itself, so the boost only resolves the pronoun because "Inception"
+        # is still present from the prior turn.
+        retrieved = self.retrieve(retrieval_query, top_k=top_k)
 
-            retrieved = self.retrieve(retrieval_query, top_k=top_k, boost_query=question)
-
-            if not retrieved or retrieved[0].score < 0.35:
-                return {
-                    "question": question,
-                    "answer": "I don't have enough information to answer that from the movie data I have.",
-                    "sources": [],
-                }
-
-            answer_text = self.generate_answer(question, retrieved[:1], recent_user_questions)
-
+        if not retrieved or retrieved[0].score < 0.35:
             return {
                 "question": question,
-                "answer": answer_text,
-                "sources": [{"title": m.title, "score": round(m.score, 4)} for m in retrieved],
+                "answer": "I don't have enough information to answer that from the movie data I have.",
+                "sources": [],
             }
+
+        answer_text = self.generate_answer(question, retrieved[:1], recent_user_questions)
+
+        return {
+            "question": question,
+            "answer": answer_text,
+            "sources": [{"title": m.title, "score": round(m.score, 4)} for m in retrieved],
+        }
 
 
 rag_service = MovieRAGService(CORPUS_PATH, CONFIG_PATH)

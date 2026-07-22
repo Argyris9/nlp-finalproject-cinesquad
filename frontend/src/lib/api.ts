@@ -116,6 +116,14 @@ export type RecommendationItem = {
 export type RecommendResponse = { session_id: string; generated_at: string; recommendations: RecommendationItem[] };
 export type RetrievedMovieRef = { movie_id: string; title: string; score: number };
 export type GroupChatResponse = { answer: string; retrieved_movies: RetrievedMovieRef[]; grounding_note: string };
+export type GroupChatHistoryEntry = {
+  id: number;
+  user_id: string;
+  display_name: string;
+  message: string;
+  answer: string;
+  retrieved_movies: RetrievedMovieRef[];
+};
 export type MovieDetail = {
   movie_id: string;
   title: string;
@@ -181,5 +189,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ user_id, message, current_movie_ids }),
     }),
+  groupChatHistory: (sessionId: string) =>
+    request<GroupChatHistoryEntry[]>(`/api/sessions/${sessionId}/chat/history`),
   movieDetail: (movieId: string) => request<MovieDetail>(`/api/movies/${movieId}`),
 };

@@ -145,6 +145,15 @@ class GroupChatResponse(BaseModel):
     grounding_note: str
 
 
+class ChatHistoryEntry(BaseModel):
+    id: int
+    user_id: str
+    display_name: str
+    message: str
+    answer: str
+    retrieved_movies: list[RetrievedMovieRef] = []
+
+
 # ---- Movies ---------------------------------------------------------------
 
 

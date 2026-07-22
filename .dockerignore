@@ -1,0 +1,19 @@
+# Keep the backend image build context small -- none of this is needed
+# to run the FastAPI app (see Dockerfile comment).
+.git/
+.venv/
+frontend/
+notebooks/
+movie_dataset_public_final/
+tmdb_5000_movies/
+tmdb_movie_dataset_v11/
+ml-25m/
+/*.pdf
+/*.md
+# NOT a bare *.md -- backend/prompts/*.md is loaded at runtime by
+# backend/services/prompt_loader.py and must be included.
+__pycache__/
+*.pyc
+.DS_Store
+.env
+.pytest_cache/

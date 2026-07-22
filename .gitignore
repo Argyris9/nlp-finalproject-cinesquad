@@ -15,11 +15,9 @@ ml-25m/
 movie_dataset_public_final/
 frontend/node_modules/
 frontend/.tanstack/
-models/rag/corpus.csv
 
 # Large data and artifacts
 .venv/
 movie_dataset_public_final/
 data/*.pkl
 embeddings/
-**/corpus.csv

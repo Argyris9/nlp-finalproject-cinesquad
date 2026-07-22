@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 
 from backend.schemas import (
+    ChatHistoryEntry,
     CreateSessionRequest,
     CreateSessionResponse,
     GroupChatRequest,
@@ -176,7 +177,7 @@ def recommend(session_id: str, request: RecommendRequest) -> RecommendResponse:
 @router.post("/sessions/{session_id}/chat", response_model=GroupChatResponse)
 def group_chat(session_id: str, request: GroupChatRequest) -> GroupChatResponse:
     session = session_service.get_session(session_id)
-    session_service.get_user(session, request.user_id)  # 404 if user_id unknown
+    user = session_service.get_user(session, request.user_id)  # 404 if user_id unknown
     if not catalog_service.ready:
         raise HTTPException(503, "Movie catalog not available -- see models/recommender/README.md")
 
@@ -190,12 +191,28 @@ def group_chat(session_id: str, request: GroupChatRequest) -> GroupChatResponse:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(500, "Internal error while generating a chat response.") from exc
 
-    session.chat_history.append({"user_id": request.user_id, "message": request.message, "answer": result["answer"]})
+    session.chat_history.append({
+        "id": len(session.chat_history),
+        "user_id": request.user_id,
+        "display_name": user.display_name,
+        "message": request.message,
+        "answer": result["answer"],
+        "retrieved_movies": result["retrieved_movies"],
+    })
     return GroupChatResponse(
         answer=result["answer"],
         retrieved_movies=[RetrievedMovieRef(**m) for m in result["retrieved_movies"]],
         grounding_note=result["grounding_note"],
     )
+
+
+@router.get("/sessions/{session_id}/chat/history", response_model=list[ChatHistoryEntry])
+def group_chat_history(session_id: str) -> list[ChatHistoryEntry]:
+    """Every user in the session shares this history -- polled by the
+    frontend so a message from one participant shows up for everyone."""
+    session = session_service.get_session(session_id)
+    return [ChatHistoryEntry(**turn) for turn in session.chat_history]
+
 
 # ---- Movies -----------------------------------------------------------------
 

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Info, Send, Ticket, Trophy } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
@@ -9,6 +9,7 @@ import { TypingIndicator } from "@/components/TypingIndicator";
 import {
   api,
   ApiError,
+  type GroupChatHistoryEntry,
   type RecommendationItem,
   type RetrievedMovieRef,
 } from "@/lib/api";
@@ -27,12 +28,37 @@ const LOADING_CAPTIONS = [
   "checking the group's collective vibe…",
 ];
 
+const CHAT_HISTORY_POLL_MS = 3000;
+
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   text: string;
   sources?: RetrievedMovieRef[];
+  senderName?: string;
+  isMine?: boolean;
 };
+
+// chat_history is shared across the whole session -- every turn (whoever
+// sent it) becomes a user bubble + assistant bubble, so all participants
+// see the same conversation instead of only their own local messages.
+function historyToMessages(history: GroupChatHistoryEntry[], myUserId: string): ChatMessage[] {
+  return history.flatMap((turn) => [
+    {
+      id: `${turn.id}-u`,
+      role: "user" as const,
+      text: turn.message,
+      senderName: turn.display_name,
+      isMine: turn.user_id === myUserId,
+    },
+    {
+      id: `${turn.id}-a`,
+      role: "assistant" as const,
+      text: turn.answer,
+      sources: turn.retrieved_movies,
+    },
+  ]);
+}
 
 function ResultsPage() {
   return (
@@ -79,23 +105,53 @@ function Results() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, chatLoading]);
 
+  const refreshHistory = useCallback(async () => {
+    if (!identity) return;
+    try {
+      const history = await api.groupChatHistory(sessionId);
+      setMessages(historyToMessages(history, identity.userId));
+    } catch {
+      // transient poll failure -- keep showing whatever we already have
+    }
+  }, [sessionId, identity]);
+
+  useEffect(() => {
+    if (!identity || !recommendations) return;
+    refreshHistory();
+    const interval = setInterval(refreshHistory, CHAT_HISTORY_POLL_MS);
+    return () => clearInterval(interval);
+  }, [identity, recommendations, refreshHistory]);
+
   async function sendChat() {
     const text = input.trim();
     if (!text || chatLoading || !identity || !recommendations) return;
     setChatError(null);
-    setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text }]);
     setInput("");
+    // Optimistic bubble for the sender only -- reconciled with the shared
+    // history (and everyone else's view) as soon as the request resolves.
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `pending-${Date.now()}`,
+        role: "user",
+        text,
+        senderName: identity.displayName,
+        isMine: true,
+      },
+    ]);
     setChatLoading(true);
     try {
-      const res = await api.groupChat(
+      await api.groupChat(
         sessionId,
         identity.userId,
         text,
         recommendations.map((r) => r.movie_id),
       );
-      setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "assistant", text: res.answer, sources: res.retrieved_movies }]);
+      await refreshHistory();
     } catch (err) {
-      setChatError(err instanceof ApiError ? err.message : "something jammed the projector. try again.");
+      setChatError(
+        err instanceof ApiError ? err.message : "something jammed the projector. try again.",
+      );
     } finally {
       setChatLoading(false);
     }
@@ -298,19 +354,28 @@ function RecommendationCard({ rec, index }: { rec: RecommendationItem; index: nu
 
 function ChatBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
+  const isMine = isUser && message.isMine;
+  const isOtherUser = isUser && !message.isMine;
   return (
     <motion.div
       initial={{ opacity: 0, y: 8, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.3, ease: [0.2, 0.8, 0.2, 1] }}
-      className={cn("flex gap-2 items-end", isUser ? "justify-end" : "justify-start")}
+      className={cn("flex gap-2 items-end", isMine ? "justify-end" : "justify-start")}
     >
       {!isUser && <Mascot size={28} className="shrink-0" />}
-      <div className={cn("flex flex-col gap-2 max-w-[85%]", isUser && "items-end")}>
+      <div className={cn("flex flex-col gap-2 max-w-[85%]", isMine && "items-end")}>
+        {isOtherUser && (
+          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground px-1">
+            {message.senderName}
+          </span>
+        )}
         <div
           className={cn(
             "rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-card whitespace-pre-wrap",
-            isUser ? "bg-primary text-primary-foreground rounded-br-md" : "bg-muted text-foreground rounded-bl-md",
+            isMine && "bg-primary text-primary-foreground rounded-br-md",
+            isOtherUser && "bg-accent text-accent-foreground rounded-bl-md",
+            !isUser && "bg-muted text-foreground rounded-bl-md",
           )}
         >
           {message.text}

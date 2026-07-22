@@ -9,6 +9,7 @@ joblib
 torch
 transformers
 sentence-transformers
+nltk
 requests
 faiss-cpu
 pytest
